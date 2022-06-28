@@ -31,7 +31,7 @@ import { Limit, incLimitedValue } from '../../workers/global/limits';
 import { newlineRegex, regEx } from '../regex';
 import { parseGitAuthor } from './author';
 import { getCachedBehindBaseResult } from './behind-base-branch-cache';
-import { getNoVerify, simpleGitConfig } from './config';
+import { getNoVerify, getRemotePushPrefix, simpleGitConfig } from './config';
 import {
   getCachedConflictResult,
   setCachedConflictResult,
@@ -227,6 +227,30 @@ async function fetchBranchCommits(): Promise<void> {
     }
     throw err;
   }
+}
+
+/**
+ * register/set-upstream the (existing) branch with current commitSha
+ * @param branchName name of branch to register and set-upstream
+ * @param isModified register if the branch was modified from upstream user (!= renovate-bot)
+ */
+export async function registerBranch(
+  branchName: string,
+  isModified?: boolean
+): Promise<void> {
+  const defaultBranch = await getDefaultBranch(git);
+  //set upstream to allow upstream-references like @{u}
+  await gitRetry(() =>
+    git.branch(['-f', branchName, '--set-upstream-to=origin/' + defaultBranch])
+  );
+  config.branchCommits[branchName] = (await git.revparse([branchName])).trim();
+  if (isModified) {
+    config.branchIsModified[branchName] = isModified;
+  }
+}
+
+export async function fetchRevSpec(revSpec: string): Promise<void> {
+  await gitRetry(() => git.fetch(['origin', revSpec]));
 }
 
 export async function initRepo(args: StorageConfig): Promise<void> {
@@ -527,11 +551,9 @@ export async function checkoutBranch(branchName: string): Promise<CommitSha> {
   logger.debug(`Setting current branch to ${branchName}`);
   await syncGit();
   try {
-    config.currentBranch = branchName;
-    config.currentBranchSha = (
-      await git.raw(['rev-parse', 'origin/' + branchName])
-    ).trim();
     await gitRetry(() => git.checkout(['-f', branchName, '--']));
+    config.currentBranch = branchName;
+    config.currentBranchSha = (await git.raw(['rev-parse', 'HEAD'])).trim();
     const latestCommitDate = (await git.log({ n: 1 }))?.latest?.date;
     if (latestCommitDate) {
       logger.debug({ branchName, latestCommitDate }, 'latest commit');
@@ -624,7 +646,7 @@ export async function isBranchBehindBase(
   }
 }
 
-export async function isBranchModified(branchName: string): Promise<boolean> {
+export async function isBranchModified(branchName: string, branchRefSpec?: string): Promise<boolean> {
   if (!branchExists(branchName)) {
     logger.debug('branch.isModified(): no cache');
     return false;
@@ -655,7 +677,7 @@ export async function isBranchModified(branchName: string): Promise<boolean> {
         'log',
         '-1',
         '--pretty=format:%ae',
-        `origin/${branchName}`,
+        branchRefSpec ?? `origin/${branchName}`,
         '--',
       ])
     ).trim();
@@ -886,6 +908,15 @@ export async function hasDiff(branchName: string): Promise<boolean> {
   }
 }
 
+export async function hasChanges(options: string[]): Promise<boolean> {
+  await syncGit();
+  try {
+    return (await gitRetry(() => git.diff(options))) !== '';
+  } catch (err) {
+    return true;
+  }
+}
+
 async function handleCommitAuth(localDir: string): Promise<void> {
   if (!privateKeySet) {
     await writePrivateKey();
@@ -1050,7 +1081,11 @@ export async function pushCommit({
     }
 
     const pushRes = await gitRetry(() =>
-      git.push('origin', `${branchName}:${branchName}`, pushOptions)
+      git.push(
+        'origin',
+        `${branchName}:${getRemotePushPrefix()}${branchName}`,
+        pushOptions
+      )
     );
     delete pushRes.repo;
     logger.debug({ result: pushRes }, 'git push');

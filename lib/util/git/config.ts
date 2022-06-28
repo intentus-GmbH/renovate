@@ -17,6 +17,16 @@ export function getNoVerify(): GitNoVerifyOption[] {
   return noVerify;
 }
 
+let remotePushPrefix = '';
+
+export function getRemotePushPrefix(): string {
+  return remotePushPrefix;
+}
+
+export function setRemotePushPrefix(branchPrefix: string): void {
+  remotePushPrefix = branchPrefix;
+}
+
 export function simpleGitConfig(): Partial<SimpleGitOptions> {
   const config: Partial<SimpleGitOptions> = {
     completion: {

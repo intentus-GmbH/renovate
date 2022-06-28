@@ -20,3 +20,4 @@ bin/yarn*
 /tools/dist
 /patches
 **/tmp/
+.local
