@@ -31,7 +31,7 @@ import { Limit, incLimitedValue } from '../../workers/global/limits';
 import { newlineRegex, regEx } from '../regex';
 import { parseGitAuthor } from './author';
 import { getCachedBehindBaseResult } from './behind-base-branch-cache';
-import { getNoVerify, simpleGitConfig } from './config';
+import { getNoVerify, getRemoteBranchRefSpec, simpleGitConfig } from './config';
 import {
   getCachedConflictResult,
   setCachedConflictResult,
@@ -201,7 +201,10 @@ export async function validateGitVersion(): Promise<boolean> {
 
 async function fetchBranchCommits(): Promise<void> {
   config.branchCommits = {};
-  const opts = ['ls-remote', '--heads', config.url];
+  const opts = ['ls-remote', config.url, 'refs/heads/*'];
+  if (getRemoteBranchRefSpec() !== '') {
+    opts.push(getRemoteBranchRefSpec() + '*');
+  }
   if (config.extraCloneOpts) {
     Object.entries(config.extraCloneOpts).forEach((e) =>
       // TODO: types (#7154)
@@ -214,7 +217,10 @@ async function fetchBranchCommits(): Promise<void> {
       .filter(Boolean)
       .map((line) => line.trim().split(regEx(/\s+/)))
       .forEach(([sha, ref]) => {
-        config.branchCommits[ref.replace('refs/heads/', '')] = sha;
+        const branchName = ref.startsWith('refs/heads')
+          ? ref.replace('refs/heads/', '')
+          : ref.replace(getRemoteBranchRefSpec(), '');
+        config.branchCommits[branchName] = sha;
       });
   } catch (err) /* istanbul ignore next */ {
     const errChecked = checkForPlatformFailure(err);
@@ -527,11 +533,9 @@ export async function checkoutBranch(branchName: string): Promise<CommitSha> {
   logger.debug(`Setting current branch to ${branchName}`);
   await syncGit();
   try {
-    config.currentBranch = branchName;
-    config.currentBranchSha = (
-      await git.raw(['rev-parse', 'origin/' + branchName])
-    ).trim();
     await gitRetry(() => git.checkout(['-f', branchName, '--']));
+    config.currentBranch = branchName;
+    config.currentBranchSha = (await git.raw(['rev-parse', 'HEAD'])).trim();
     const latestCommitDate = (await git.log({ n: 1 }))?.latest?.date;
     if (latestCommitDate) {
       logger.debug({ branchName, latestCommitDate }, 'latest commit');
@@ -762,7 +766,14 @@ export async function isBranchConflicted(
 export async function deleteBranch(branchName: string): Promise<void> {
   await syncGit();
   try {
-    await gitRetry(() => git.raw(['push', '--delete', 'origin', branchName]));
+    await gitRetry(() =>
+      git.raw([
+        'push',
+        '--delete',
+        'origin',
+        getRemoteBranchRefSpec() + branchName,
+      ])
+    );
     logger.debug({ branchName }, 'Deleted remote branch');
   } catch (err) /* istanbul ignore next */ {
     const errChecked = checkForPlatformFailure(err);
@@ -1050,7 +1061,11 @@ export async function pushCommit({
     }
 
     const pushRes = await gitRetry(() =>
-      git.push('origin', `${branchName}:${branchName}`, pushOptions)
+      git.push(
+        'origin',
+        `${branchName}:${getRemoteBranchRefSpec()}${branchName}`,
+        pushOptions
+      )
     );
     delete pushRes.repo;
     logger.debug({ result: pushRes }, 'git push');

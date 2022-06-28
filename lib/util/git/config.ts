@@ -17,6 +17,18 @@ export function getNoVerify(): GitNoVerifyOption[] {
   return noVerify;
 }
 
+//TODO: could this defaults to "refs/heads/"?
+// Should this be an array to allow multiple refspecs to fetch like ['refs/heads/', 'refs/renovate/'] ?
+let remoteBranchRefSpec = '';
+
+export function getRemoteBranchRefSpec(): string {
+  return remoteBranchRefSpec;
+}
+
+export function setRemoteBranchRefSpec(refSpec: string): void {
+  remoteBranchRefSpec = refSpec;
+}
+
 export function simpleGitConfig(): Partial<SimpleGitOptions> {
   const config: Partial<SimpleGitOptions> = {
     completion: {

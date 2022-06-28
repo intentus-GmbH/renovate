@@ -73,7 +73,7 @@ export type FileChange = FileAddition | FileDeletion;
 export interface CommitFilesConfig {
   branchName: string;
   files: FileChange[];
-  message: string;
+  message: string | string[];
   force?: boolean;
   platformCommit?: boolean;
 }
