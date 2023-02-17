@@ -2521,6 +2521,14 @@ const options: RenovateOptions[] = [
     supportedPlatforms: ['github'],
   },
   {
+    name: 'gerritAutoApprove',
+    description:
+      'If set to `true`, Renovate automatically approves its own changes. This means Renovate assigns the Code-Review label = +2.',
+    type: 'boolean',
+    default: false,
+    supportedPlatforms: ['gerrit'],
+  },
+  {
     name: 'branchNameStrict',
     description: `Whether to be strict about the use of special characters within the branch name.`,
     type: 'boolean',
